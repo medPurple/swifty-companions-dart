@@ -7,11 +7,13 @@ import 'main.dart';
 class HomeView extends StatefulWidget {
   final String? token;
   final VoidCallback onLogin;
+  final Function(String?) onTokenUpdate; // Nouveau callback
 
   const HomeView({
     Key? key,
     required this.token,
     required this.onLogin,
+    required this.onTokenUpdate,
   }) : super(key: key);
 
   @override
@@ -21,6 +23,8 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   final TextEditingController _searchController = TextEditingController();
   final AuthService _authService = AuthService();
+  final TokenService _tokenService = TokenService();
+  bool _isLoading = false;
 
   void _handleSearch() async {
     final query = _searchController.text.trim();
@@ -35,40 +39,79 @@ class _HomeViewState extends State<HomeView> {
       return;
     }
 
-    final data = await _authService.searchUser(token, query);
-    if (data == null) {
-      _showSnack('Utilisateur non trouvé');
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DetailsView(userData: data),
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final data = await _authService.searchUser(token, query);
+      if (data == null) {
+        // Vérifier si c'est un problème d'authentification
+        final currentToken = await _tokenService.getAccessToken();
+        if (currentToken == null) {
+          _showSnack('Session expirée, veuillez vous reconnecter');
+          widget.onTokenUpdate(null); // Mettre à jour l'état parent
+        } else if (currentToken != token) {
+          // Le token a été rafraîchi, mettre à jour l'état parent
+          widget.onTokenUpdate(currentToken);
+          _showSnack('Token mis à jour, réessayez');
+        } else {
+          _showSnack('Utilisateur non trouvé');
+        }
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DetailsView(userData: data),
+          ),
+        );
+      }
+    } catch (e) {
+      _showSnack('Erreur lors de la recherche');
+      print('Search error: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _handleLogout() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _authService.logout();
+      widget.onTokenUpdate(null); // Mettre à jour l'état parent
+      setState(() {
+        _searchController.clear();
+      });
+      _showSnack('Déconnecté avec succès');
+    } catch (e) {
+      _showSnack('Erreur lors de la déconnexion');
+      print('Logout error: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _showSnack(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message), 
+          duration: Duration(seconds: 3),
         ),
       );
     }
   }
 
-  void _handleLogout() async {
-    await TokenService().clearToken();
-    setState(() {
-      _searchController.clear();
-    });
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => MainScreen()),
-    );
-  }
-
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: Duration(seconds: 2)),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isConnected = widget.token != null;
-
     return Scaffold(
       backgroundColor: const Color(0xFF0F1F1A),
       appBar: AppBar(
@@ -77,7 +120,7 @@ class _HomeViewState extends State<HomeView> {
         actions: isConnected
             ? [
                 IconButton(
-                  icon: Icon(Icons.logout, color: Color(0xFFDC8D64)),
+                  icon: const Icon(Icons.logout, color: Color(0xFFDC8D64)),
                   onPressed: _handleLogout,
                   tooltip: 'Déconnexion',
                 ),
@@ -90,7 +133,7 @@ class _HomeViewState extends State<HomeView> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
+              const Text(
                 'Swifty\nCompanions',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -107,8 +150,7 @@ class _HomeViewState extends State<HomeView> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFB74C28),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -139,8 +181,7 @@ class _HomeViewState extends State<HomeView> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFB74C28),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),

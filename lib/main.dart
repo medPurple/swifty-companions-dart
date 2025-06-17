@@ -22,7 +22,6 @@ void main() {
   );
 }
 
-
 class MainScreen extends StatefulWidget {
   @override
   _MainScreenState createState() => _MainScreenState();
@@ -33,26 +32,43 @@ class _MainScreenState extends State<MainScreen> {
   String? token;
   late List<Widget> _pages;
   final AuthService authService = AuthService();
+  final TokenService tokenService = TokenService();
   StreamSubscription? _sub;
 
   @override
   void initState() {
     super.initState();
     _pages = [
-      HomeView(token: token, onLogin: handleLogin),
+      HomeView(token: token, onLogin: handleLogin, onTokenUpdate: updateToken),
     ];
     listenForRedirect();
     checkExistingToken();
   }
 
   Future<void> checkExistingToken() async {
-    final existingToken = await TokenService().getToken();
+    final existingToken = await tokenService.getAccessToken();
     if (existingToken != null) {
       setState(() {
         token = existingToken;
-        _pages[0] = HomeView(token: token, onLogin: handleLogin);
+        _updateHomeView();
       });
     }
+  }
+
+  void _updateHomeView() {
+    _pages[0] = HomeView(
+      token: token, 
+      onLogin: handleLogin,
+      onTokenUpdate: updateToken,
+    );
+  }
+
+  // Nouvelle méthode pour mettre à jour le token depuis HomeView
+  void updateToken(String? newToken) {
+    setState(() {
+      token = newToken;
+      _updateHomeView();
+    });
   }
 
   void listenForRedirect() {
@@ -76,17 +92,23 @@ class _MainScreenState extends State<MainScreen> {
 
   void handleCode(String? code) async {
     if (code == null) return;
+    
     final accessToken = await authService.exchangeCodeForToken(code);
     if (accessToken != null) {
-      await TokenService().saveToken(accessToken);
       setState(() {
         token = accessToken;
-        _pages[0] = HomeView(token: token, onLogin: handleLogin);
+        _updateHomeView();
       });
+    } else {
+      // Afficher une erreur si l'échange a échoué
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur d\'authentification'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
-
-
 
   void handleLogin() async {
     await authService.startAuth();
@@ -126,20 +148,37 @@ class _CallbackScreenState extends State<CallbackScreen> {
 
     if (code != null) {
       final token = await authService.exchangeCodeForToken(code);
-      if (token != null) {
-        await TokenService().saveToken(token);
-      } else {
+      if (token == null) {
         print("Échec de l'échange de code");
+        // Afficher une erreur à l'utilisateur
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur d\'authentification'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
+    } else {
+      print("Aucun code reçu dans le callback");
     }
 
+    // Rediriger vers l'écran principal dans tous les cas
     Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(child: CircularProgressIndicator()),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text('Authentification en cours...'),
+          ],
+        ),
+      ),
     );
   }
 }
